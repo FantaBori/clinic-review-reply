@@ -14,7 +14,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
     // 안전한 localStorage 접근 함수 (보안 환경 백화 현상 방지)
     const getStorage = (key, fallback) => {
@@ -35,6 +35,14 @@
       "치과", "피부과", "성형외과", "동물병원", "한의원", "정형외과", "안과", "내과/소아과", "기타 병의원"
     ];
 
+    // 대기 중 사용자에게 보여줄 회전 문구 (실시간 진행률이 아니므로 %가 아닌 상태 메시지로 안내)
+    const LOADING_MESSAGES = [
+      "🧠 리뷰 내용을 분석하고 있어요...",
+      "📋 의료법 가이드라인을 검토하고 있어요...",
+      "✍️ 맞춤 답글 3종을 작성하고 있어요...",
+      "🔍 어조와 표현을 다듬고 있어요..."
+    ];
+
     function App() {
       // 설정 값 (안전 로딩 적용)
       const [apiKey, setApiKey] = useState(() => getStorage("gemini_key", ""));
@@ -46,7 +54,8 @@
       const [reviewText, setReviewText] = useState("");
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
-      const [progress, setProgress] = useState(0);
+      const [elapsed, setElapsed] = useState(0); // 경과 시간(초)
+      const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
       const [coolDown, setCoolDown] = useState(0); // 동적 대기 타이머
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
@@ -59,7 +68,7 @@
       const handleSaveClinicType = (val) => { setClinicType(val); setStorage("clinic_type", val); };
       const handleSaveGreeting = (val) => { setCustomGreeting(val); setStorage("clinic_greeting", val); };
 
-      // 타이머 카운트다운
+      // 대기 타이머(재시도 쿨다운) 카운트다운
       useEffect(() => {
         let timer;
         if (coolDown > 0) {
@@ -69,6 +78,23 @@
         }
         return () => clearInterval(timer);
       }, [coolDown]);
+
+      // 로딩 중 경과 시간 + 회전 문구 타이머 (실시간 스트리밍이 아니므로 % 대신 사용)
+      useEffect(() => {
+        let elapsedTimer, msgTimer;
+        if (loading) {
+          setElapsed(0);
+          setLoadingMsgIdx(0);
+          elapsedTimer = setInterval(() => setElapsed((p) => p + 1), 1000);
+          msgTimer = setInterval(() => {
+            setLoadingMsgIdx((p) => (p + 1) % LOADING_MESSAGES.length);
+          }, 2200);
+        }
+        return () => {
+          clearInterval(elapsedTimer);
+          clearInterval(msgTimer);
+        };
+      }, [loading]);
 
       const generateReplies = async () => {
         const cleanKey = apiKey.trim();
@@ -82,7 +108,6 @@
         }
 
         setLoading(true);
-        setProgress(5);
         setErrorMsg("");
         setResults(null);
 
@@ -134,7 +159,9 @@
         `;
 
         try {
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${cleanKey}`, {
+          // 실시간 스트리밍(streamGenerateContent) 대신 일반 호출(generateContent) 사용
+          // → 응답이 완전한 단일 JSON으로 오기 때문에 파싱 오류 위험이 사라짐
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${cleanKey}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -162,47 +189,23 @@
             throw new Error(`API 오류 (${res.status}): ${rawMsg || "답변 형식을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."}`);
           }
 
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder("utf-8");
-          let accumulatedText = "";
-          const ESTIMATED_TOTAL_SIZE = 850; 
+          const data = await res.json();
 
-          setProgress(15);
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            accumulatedText += chunk;
-
-            const currentSize = accumulatedText.length;
-            const calculatedPct = Math.min(98, Math.floor((currentSize / ESTIMATED_TOTAL_SIZE) * 100));
-            setProgress(Math.max(20, calculatedPct));
-          }
-
-          const jsonMatches = accumulatedText.match(/"text":\s*"([\s\S]*?)"/g) || [];
-          let fullPromptOutput = "";
-          
-          jsonMatches.forEach(m => {
-            try {
-              const parsedText = JSON.parse("{" + m + "}").text;
-              fullPromptOutput += parsedText;
-            } catch(e) {}
-          });
+          // 표준 generateContent 응답 구조에서 텍스트 추출
+          const parts = data?.candidates?.[0]?.content?.parts || [];
+          let fullPromptOutput = parts.map(p => p.text || "").join("");
 
           if (!fullPromptOutput) {
-            fullPromptOutput = accumulatedText;
+            throw new Error("AI로부터 응답 텍스트를 받지 못했습니다. 잠시 후 다시 시도해 주세요.");
           }
 
           const cleanedJson = fullPromptOutput.replace(/```json/g, "").replace(/```/g, "").trim();
           const jsonStart = cleanedJson.indexOf('{');
           const jsonEnd = cleanedJson.lastIndexOf('}');
-          
+
           if (jsonStart !== -1 && jsonEnd !== -1) {
             const parsed = JSON.parse(cleanedJson.substring(jsonStart, jsonEnd + 1));
             setResults(parsed.replies || []);
-            setProgress(100);
           } else {
             setCoolDown(15);
             throw new Error("답변 형식을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
@@ -373,19 +376,25 @@
               </a>
             </div>
 
-            {/* Realtime Streaming Progress Bar */}
+            {/* 로딩 상태 표시 - 비실시간(non-streaming) 호출에 맞춰 %가 아닌 
+                "진행 중" 인디케이터 + 경과 시간 + 회전 안내 문구로 디자인 */}
             {loading && (
-              <div className="space-y-1.5 pt-2">
+              <div className="space-y-2 pt-2">
                 <div className="flex justify-between items-center text-xs font-bold text-slate-600">
-                  <span>📡 실시간 스트리밍으로 답글 생성 수신 중...</span>
-                  <span className="text-blue-600 font-mono text-sm">{progress}%</span>
+                  <span className="transition-opacity duration-300">{LOADING_MESSAGES[loadingMsgIdx]}</span>
+                  <span className="text-blue-600 font-mono text-sm">{elapsed}초 경과</span>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner">
-                  <div
-                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-150 ease-out shadow-md"
-                    style={{ width: `${progress}%` }}
-                  ></div>
+                {/* 정확한 %를 알 수 없으므로 좌우로 흐르는 인디터미네이트(indeterminate) 바 사용 */}
+                <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner relative">
+                  <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full shadow-md animate-[loadingSlide_1.3s_ease-in-out_infinite]"></div>
                 </div>
+                <style>{`
+                  @keyframes loadingSlide {
+                    0% { left: -33%; }
+                    50% { left: 50%; }
+                    100% { left: 100%; }
+                  }
+                `}</style>
               </div>
             )}
 
@@ -407,7 +416,7 @@
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  <span>실시간 데이터 수신 중 ({progress}%)</span>
+                  <span>AI가 답글을 작성하고 있어요... ({elapsed}초)</span>
                 </div>
               ) : coolDown > 0 ? (
                 <span>⏳ 잠시 대기 중 ({coolDown}초 후 다시 가능)</span>
@@ -525,6 +534,14 @@
                       ⏱️ 왜 1분을 안 기다리고 잠시 뒤에 되나요?
                     </p>
                     <p>구글 Gemini API는 <strong>슬라이딩 윈도우(Sliding Window)</strong> 방식으로 제한을 계산합니다. 정각 기준 1분이 아니라 <strong>현재 요청하는 순간 기준 과거 60초간의 사용 횟수</strong>를 실시간으로 측정하므로, 연속 클릭 후 약 15~30초 간격만 두어도 한도가 해제됩니다.</p>
+                  </div>
+
+                  {/* 3. 비실시간(non-streaming) 방식 안내 */}
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-700">
+                    <p className="font-bold mb-1.5 flex items-center gap-1 text-sm">
+                      🔄 왜 %가 아니라 경과 시간으로 표시되나요?
+                    </p>
+                    <p>이 앱은 안정성을 위해 실시간 스트리밍 대신, AI가 답글 작성을 <strong>완료한 뒤 한 번에</strong> 결과를 받아오는 방식을 사용합니다. 그래서 정확한 진행률(%) 대신 경과 시간과 진행 상태 문구로 대기 상황을 안내해 드려요. 보통 5~15초 내외로 완료됩니다.</p>
                   </div>
                 </div>
 
