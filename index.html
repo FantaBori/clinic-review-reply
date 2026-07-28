@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>병의원 네이버 플레이스 리뷰 답글 생성기</title>
+  <!-- cdnjs 기반 안정적인 고속 라이브러리 로드 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -15,11 +16,19 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    // 안전한 localStorage 접근 함수 (보안 환경 백화 현상 방지)
     const getStorage = (key, fallback) => {
-      try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
+      try {
+        return localStorage.getItem(key) || fallback;
+      } catch (e) {
+        return fallback;
+      }
     };
+
     const setStorage = (key, val) => {
-      try { localStorage.setItem(key, val); } catch (e) {}
+      try {
+        localStorage.setItem(key, val);
+      } catch (e) {}
     };
 
     const CLINIC_TYPES = [
@@ -27,46 +36,39 @@
     ];
 
     function App() {
+      // 설정 값 (안전 로딩 적용)
       const [apiKey, setApiKey] = useState(() => getStorage("gemini_key", ""));
       const [storeName, setStoreName] = useState(() => getStorage("clinic_name", "연세힐치과의원"));
       const [clinicType, setClinicType] = useState(() => getStorage("clinic_type", "치과"));
       const [customGreeting, setCustomGreeting] = useState(() => getStorage("clinic_greeting", "안녕하세요, 연세힐치과입니다 🦷"));
 
+      // 입력 및 상태 값
       const [reviewText, setReviewText] = useState("");
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
-      const [loadingStep, setLoadingStep] = useState(0);
-      const [coolDown, setCoolDown] = useState(0);
+      const [progress, setProgress] = useState(0);
+      const [coolDown, setCoolDown] = useState(0); // 동적 대기 타이머
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
       const [showInfoModal, setShowInfoModal] = useState(false);
       const [showKeyGuideModal, setShowKeyGuideModal] = useState(false);
 
+      // 저장 처리
       const handleSaveKey = (val) => { setApiKey(val); setStorage("gemini_key", val); };
       const handleSaveStoreName = (val) => { setStoreName(val); setStorage("clinic_name", val); };
       const handleSaveClinicType = (val) => { setClinicType(val); setStorage("clinic_type", val); };
       const handleSaveGreeting = (val) => { setCustomGreeting(val); setStorage("clinic_greeting", val); };
 
+      // 타이머 카운트다운
       useEffect(() => {
         let timer;
         if (coolDown > 0) {
-          timer = setInterval(() => setCoolDown((prev) => prev - 1), 1000);
+          timer = setInterval(() => {
+            setCoolDown((prev) => prev - 1);
+          }, 1000);
         }
         return () => clearInterval(timer);
       }, [coolDown]);
-
-      useEffect(() => {
-        let interval;
-        if (loading) {
-          setLoadingStep(1);
-          interval = setInterval(() => {
-            setLoadingStep((prev) => (prev >= 3 ? 3 : prev + 1));
-          }, 1000);
-        } else {
-          setLoadingStep(0);
-        }
-        return () => clearInterval(interval);
-      }, [loading]);
 
       const generateReplies = async () => {
         const cleanKey = apiKey.trim();
@@ -80,6 +82,7 @@
         }
 
         setLoading(true);
+        setProgress(5);
         setErrorMsg("");
         setResults(null);
 
@@ -90,50 +93,53 @@
         }[tone];
 
         const promptText = `
-너는 대한민국 병의원 네이버 플레이스 리뷰 답글 전문가야.
-의료기관 정보와 환자 리뷰를 바탕으로 3가지 맞춤 답글을 작성해줘.
+너는 대한민국 병의원(치과, 피부과, 내과, 동물병원 등) 네이버 플레이스 마케팅 및 환자 관리 전문가야.
+의료기관 정보와 환자 리뷰를 바탕으로 네이버 리뷰 답글 3가지 버전을 작성해줘.
 
-[기본 정보]
+[병의원 기본 정보]
 - 병원명: ${storeName}
 - 진료 과목: ${clinicType}
-- 첫인사: ${customGreeting}
+- 시그니처 첫인사: ${customGreeting}
+
+[환자/보호자 리뷰 정보]
 - 리뷰 내용: "${reviewText}"
 - 요구 어조: ${toneGuide}
 
-[의료법 제56조 준수]
-- "100% 치료", "최고/최상", "부작용 없음", "완치 보장" 등의 과대/과장 표현 절대 금지.
-- 부정적 리뷰에는 공감과 사과 후 원내 대표번호로 연락 유도.
-- 각 답글은 2~3줄 내외로 간결하게 작성.
+[의료법 및 작성 가이드라인 (엄격 준수)]
+1. 대한민국 의료법 제56조 준수: "100% 치료", "최고/최상", "부작용 없음", "완치 보장" 등의 과대/과장 표현은 절대 사용하지 말 것.
+2. 긍정적 칭찬 리뷰:
+   - 환자가 만족한 진료/시술 포인트를 짚어주고, 치료 후 케어(일상 주의사항)나 정기 검진 유도 문구를 부드럽게 포함할 것.
+3. 불만/부정적 리뷰:
+   - 감정적 대응이나 의료적 진위 여부 논쟁은 피하고, 환자가 느낀 불편함에 대해 진심 어린 공감과 사과를 전할 것.
+   - 자세한 원인 파악 및 조치를 위해 병원 대표번호나 원내 실장/담당자에게 연락 주시면 빠르게 안내해 드리겠다는 안내(원내 해결 유도)를 포함할 것.
+4. 네이버 플레이스 답글 특성에 맞게 2~4줄 내외로 깔끔하고 읽기 편하게 작성할 것.
+
+[반드시 순수 JSON 형식으로만 응답할 것]
+{
+  "replies": [
+    {
+      "tag": "추천 1 (진심 공감/정석형)",
+      "content": "첫 번째 답글 내용"
+    },
+    {
+      "tag": "추천 2 (주의사항/사후케어 안내형)",
+      "content": "두 번째 답글 내용"
+    },
+    {
+      "tag": "추천 3 (신뢰감/정기검진 유도형)",
+      "content": "세 번째 답글 내용"
+    }
+  ]
+}
         `;
 
         try {
-          // gemini-2.5-flash 표준 호환 모델 적용
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanKey}`, {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${cleanKey}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [{ parts: [{ text: promptText }] }],
-              generationConfig: {
-                temperature: 0.7,
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "OBJECT",
-                  properties: {
-                    replies: {
-                      type: "ARRAY",
-                      items: {
-                        type: "OBJECT",
-                        properties: {
-                          tag: { type: "STRING" },
-                          content: { type: "STRING" }
-                        },
-                        required: ["tag", "content"]
-                      }
-                    }
-                  },
-                  required: ["replies"]
-                }
-              }
+              generationConfig: { temperature: 0.85 }
             })
           });
 
@@ -142,28 +148,69 @@
             const rawMsg = errData.error?.message || "";
 
             const match = rawMsg.match(/retry in ([0-9.]+)s/i);
-            const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 15;
+            const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 20;
             setCoolDown(retrySeconds);
 
             if (res.status === 429) {
               if (rawMsg.includes("Per-Day") || rawMsg.includes("RPD") || rawMsg.includes("quota")) {
-                throw new Error("🛑 오늘 이용 가능한 무료 API 한도를 모두 사용했습니다. 내일 다시 시도하시거나 새 키를 발급해 주세요.");
+                throw new Error("🛑 오늘 사용할 수 있는 구글 무료 API 한도(1,500회)를 다 썼습니다. 내일 다시 이용하시거나 새 키를 발급받아 주세요.");
               }
-              throw new Error(`⏳ 요청이 너무 빠릅니다! 아래 대기 시간(${retrySeconds}초)이 지난 후 다시 시도해 주세요.`);
+
+              throw new Error(`⏳ 짧은 시간에 요청이 몰렸습니다! 구글 API 한도 해제를 위해 아래 표시된 남은 시간(${retrySeconds}초) 후 다시 시도해 주세요.`);
             }
 
-            throw new Error(`API 오류 (${res.status}): ${rawMsg || "잠시 후 다시 시도해 주세요."}`);
+            throw new Error(`API 오류 (${res.status}): ${rawMsg || "답변 형식을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."}`);
           }
 
-          const data = await res.json();
-          const jsonText = data.candidates[0].content.parts[0].text;
-          const parsed = JSON.parse(jsonText);
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let accumulatedText = "";
+          const ESTIMATED_TOTAL_SIZE = 850; 
 
-          setResults(parsed.replies || []);
+          setProgress(15);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            accumulatedText += chunk;
+
+            const currentSize = accumulatedText.length;
+            const calculatedPct = Math.min(98, Math.floor((currentSize / ESTIMATED_TOTAL_SIZE) * 100));
+            setProgress(Math.max(20, calculatedPct));
+          }
+
+          const jsonMatches = accumulatedText.match(/"text":\s*"([\s\S]*?)"/g) || [];
+          let fullPromptOutput = "";
+          
+          jsonMatches.forEach(m => {
+            try {
+              const parsedText = JSON.parse("{" + m + "}").text;
+              fullPromptOutput += parsedText;
+            } catch(e) {}
+          });
+
+          if (!fullPromptOutput) {
+            fullPromptOutput = accumulatedText;
+          }
+
+          const cleanedJson = fullPromptOutput.replace(/```json/g, "").replace(/```/g, "").trim();
+          const jsonStart = cleanedJson.indexOf('{');
+          const jsonEnd = cleanedJson.lastIndexOf('}');
+          
+          if (jsonStart !== -1 && jsonEnd !== -1) {
+            const parsed = JSON.parse(cleanedJson.substring(jsonStart, jsonEnd + 1));
+            setResults(parsed.replies || []);
+            setProgress(100);
+          } else {
+            setCoolDown(15);
+            throw new Error("답변 형식을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+          }
 
         } catch (err) {
           console.error(err);
-          setErrorMsg(err.message || "답글 생성에 실패했습니다. 키 입력 상태를 확인하고 다시 시도해 주세요.");
+          setErrorMsg(err.message || "답글 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
         } finally {
           setLoading(false);
         }
@@ -178,15 +225,6 @@
       const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
         alert("답글이 복사되었습니다! 네이버 플레이스 리뷰 답글창에 붙여넣으세요.");
-      };
-
-      const getLoadingMessage = () => {
-        switch (loadingStep) {
-          case 1: return "🔍 환자 리뷰 분석 및 핵심 키워드 추출 중...";
-          case 2: return "⚖️ 대한민국 의료법 제56조 준수 여부 검토 중...";
-          case 3: return "✨ 병원 맞춤형 답글 3종 최종 다듬는 중...";
-          default: return "⚡ AI 답글 생성 중...";
-        }
       };
 
       return (
@@ -269,6 +307,7 @@
           {/* Review Input Card */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Tone Selector */}
               <div className="w-full">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-bold text-slate-700">🎭 답글 어조 선택</label>
@@ -313,14 +352,14 @@
               ></textarea>
             </div>
 
-            {/* Helper Card */}
+            {/* Helper Card for Drag Unblocking */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div className="text-slate-600">
                 <p className="font-bold text-slate-800 flex items-center gap-1">
                   💡 네이버 플레이스 리뷰 드래그(복사)가 안 되시나요?
                 </p>
                 <p className="mt-0.5 text-slate-500">
-                  네이버 자체 드래그 방지 때문에 글 선택이 안 될 땐 <strong>DragFree(우클릭 해제)</strong> 프로그램으로 1초 만에 뚫을 수 있습니다!
+                  네이버 자체 드래그 방지 때문에 글 선택이 안 될 땐 <strong>DragFree(우클릭 해제)</strong> 프로그램으로 뚫을 수 있습니다!
                 </p>
               </div>
               <a
@@ -334,14 +373,19 @@
               </a>
             </div>
 
-            {/* Step-by-Step Loading Status Indicator */}
+            {/* Realtime Streaming Progress Bar */}
             {loading && (
-              <div className="bg-blue-50/80 p-3 rounded-xl border border-blue-100 text-xs font-bold text-blue-900 flex items-center gap-2.5 animate-pulse">
-                <svg className="animate-spin h-4 w-4 text-blue-600 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>{getLoadingMessage()}</span>
+              <div className="space-y-1.5 pt-2">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-600">
+                  <span>📡 실시간 스트리밍으로 답글 생성 수신 중...</span>
+                  <span className="text-blue-600 font-mono text-sm">{progress}%</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-150 ease-out shadow-md"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
               </div>
             )}
 
@@ -358,7 +402,13 @@
               }`}
             >
               {loading ? (
-                <span>답글 분석 및 생성 중...</span>
+                <div className="flex items-center gap-2">
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>실시간 데이터 수신 중 ({progress}%)</span>
+                </div>
               ) : coolDown > 0 ? (
                 <span>⏳ 잠시 대기 중 ({coolDown}초 후 다시 가능)</span>
               ) : (
@@ -373,7 +423,7 @@
               <div className="space-y-1">
                 <p className="font-semibold">{errorMsg}</p>
                 {coolDown > 0 && (
-                  <p className="text-xs text-amber-700 font-bold">
+                  <p className="text-xs text-amber-700 font-bold flex items-center gap-1">
                     ⏱️ 권장 대기 시간: <span className="font-mono text-sm text-blue-600">{coolDown}초</span> 후 버튼이 다시 활성화됩니다.
                   </p>
                 )}
@@ -418,7 +468,7 @@
             </div>
           )}
 
-          {/* Roadmap Card */}
+          {/* Roadmap & Feature Update Card */}
           <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-6 rounded-2xl shadow-md mb-8">
             <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider mb-2 flex items-center gap-2">
               🚀 업데이트 예정 로드맵 (Roadmap)
@@ -435,7 +485,7 @@
             </ul>
           </div>
 
-          {/* Footer */}
+          {/* Footer (Credit) */}
           <footer className="text-center text-xs text-slate-400 py-4 border-t border-slate-200/60">
             <p>Created by <span className="font-bold text-slate-600">이승훈</span> | Version v01</p>
           </footer>
@@ -457,6 +507,7 @@
                 </div>
 
                 <div className="space-y-3 text-xs leading-relaxed text-slate-600">
+                  {/* 1. 무료 요금제 제한 규정 */}
                   <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 text-amber-900">
                     <p className="font-bold mb-1.5 flex items-center gap-1 text-sm">
                       📊 무료 요금제(Free Tier) 제한 규정
@@ -468,6 +519,7 @@
                     </ul>
                   </div>
 
+                  {/* 2. 슬라이딩 윈도우 원리 안내 */}
                   <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-blue-900">
                     <p className="font-bold mb-1.5 flex items-center gap-1 text-sm">
                       ⏱️ 왜 1분을 안 기다리고 잠시 뒤에 되나요?
@@ -486,7 +538,7 @@
             </div>
           )}
 
-          {/* Modal for Free Key Guide */}
+          {/* Modal for Free Key Generation Guide */}
           {showKeyGuideModal && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-100 space-y-4">
