@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>병의원 네이버 플레이스 리뷰 답글 생성기</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const CLINIC_TYPES = [
+      "치과", "피부과", "성형외과", "동물병원", "한의원", "정형외과", "안과", "내과/소아과", "기타 병의원"
+    ];
+
+    function App() {
+      // 설정 값
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("gemini_key") || "");
+      const [storeName, setStoreName] = useState(() => localStorage.getItem("clinic_name") || "연세미소치과의원");
+      const [clinicType, setClinicType] = useState(() => localStorage.getItem("clinic_type") || "치과");
+      const [customGreeting, setCustomGreeting] = useState(() => localStorage.getItem("clinic_greeting") || "안녕하세요, 환자분의 건강한 미소를 책임지는 연세미소치과입니다 🦷");
+
+      // 입력 값
+      const [reviewText, setReviewText] = useState("");
+      const [rating, setRating] = useState("5");
+      const [tone, setTone] = useState("caring"); // caring(따뜻한/배려), professional(전문적/정중), friendly(친근한)
+      const [loading, setLoading] = useState(false);
+      const [results, setResults] = useState(null);
+      const [errorMsg, setErrorMsg] = useState("");
+
+      // 로컬 스토리지 저장
+      const handleSaveKey = (val) => { setApiKey(val); localStorage.setItem("gemini_key", val); };
+      const handleSaveStoreName = (val) => { setStoreName(val); localStorage.setItem("clinic_name", val); };
+      const handleSaveClinicType = (val) => { setClinicType(val); localStorage.setItem("clinic_type", val); };
+      const handleSaveGreeting = (val) => { setCustomGreeting(val); localStorage.setItem("clinic_greeting", val); };
+
+      const generateReplies = async () => {
+        const cleanKey = apiKey.trim();
+        if (!cleanKey) {
+          alert("우측 상단에 Gemini API Key를 입력해주세요!");
+          return;
+        }
+        if (!reviewText.trim()) {
+          alert("고객/환자 리뷰 내용을 입력해주세요!");
+          return;
+        }
+
+        setLoading(true);
+        setErrorMsg("");
+
+        const toneGuide = {
+          caring: "환자의 마음을 진심으로 공감하고 따뜻하게 보살펴주는 안심/공감 어조",
+          professional: "의료진으로서 신뢰감을 주며 진중하고 정중한 어조",
+          friendly: "부담스럽지 않고 친근하며 미소를 머금은 다정한 어조"
+        }[tone];
+
+        const promptText = `
+너는 대한민국 병의원(치과, 피부과, 내과, 동물병원 등) 네이버 플레이스 마케팅 및 환자 관리 전문가야.
+의료기관 정보와 환자 리뷰를 바탕으로 네이버 리뷰 답글 3가지 버전을 작성해줘.
+
+[병의원 기본 정보]
+- 병원명: ${storeName}
+- 진료 과목: ${clinicType}
+- 시그니처 첫인사: ${customGreeting}
+
+[환자/보호자 리뷰 정보]
+- 평점: ${rating}점 / 5점
+- 리뷰 내용: "${reviewText}"
+- 요구 어조: ${toneGuide}
+
+[의료법 및 작성 가이드라인 (엄격 준수)]
+1. 대한민국 의료법 제56조 준수: "100% 치료", "최고/최상", "부작용 없음", "완치 보장" 등의 과대/과장 표현은 절대 사용하지 말 것.
+2. 4~5점 긍정 리뷰:
+   - 환자가 만족한 진료/시술 포인트를 짚어주고, 치료 후 케어(일상 주의사항)나 정기 검진 유도 문구를 부드럽게 포함할 것.
+3. 1~3점 불만/부정 리뷰:
+   - 감정적 대응이나 의료적 진위 여부 논쟁은 피하고, 환자가 느낀 불편함에 대해 진심 어린 공감과 사과를 전할 것.
+   - 자세한 원인 파악 및 조치를 위해 병원 대표번호나 원내 실장/담당자에게 연락 주시면 빠르게 안내해 드리겠다는 안내(원내 해결 유도)를 포함할 것.
+4. 네이버 플레이스 답글 특성에 맞게 2~4줄 내외로 깔끔하고 읽기 편하게 작성할 것.
+
+[반드시 순수 JSON 형식으로만 응답할 것]
+{
+  "replies": [
+    {
+      "tag": "추천 1 (진심 공감/정석형)",
+      "content": "첫 번째 답글 내용"
+    },
+    {
+      "tag": "추천 2 (주의사항/사후케어 안내형)",
+      "content": "두 번째 답글 내용"
+    },
+    {
+      "tag": "추천 3 (신뢰감/정기검진 유도형)",
+      "content": "세 번째 답글 내용"
+    }
+  ]
+}
+        `;
+
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${cleanKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }],
+              generationConfig: { temperature: 0.85 }
+            })
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(`API Error: ${res.status} (${errData.error?.message || "요청 실패"})`);
+          }
+
+          const data = await res.json();
+          const rawText = data.candidates[0].content.parts[0].text;
+          const cleanedJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleanedJson);
+
+          setResults(parsed.replies || []);
+        } catch (err) {
+          console.error(err);
+          setErrorMsg(err.message || "답글 생성에 실패했습니다. Key 및 설정을 확인해주세요.");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        alert("답글이 복사되었습니다! 네이버 플레이스 리뷰 답글창에 붙여넣으세요.");
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto p-4 md:p-8">
+          {/* Header */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  🏥 병의원 전용 네이버 리뷰 답글 빌더
+                </h1>
+                <p className="text-slate-500 text-sm mt-1">의료법을 준수하며 환자에게 신뢰감을 주는 맞춤 답글 3종을 AI가 자동 생성합니다.</p>
+              </div>
+              <div className="w-full md:w-72">
+                <label className="block text-xs font-semibold text-slate-500 mb-1">🔑 Gemini API Key</label>
+                <input
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={apiKey}
+                  onChange={(e) => handleSaveKey(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Clinic Configuration Section */}
+            <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">🏥 병원/의원명</label>
+                <input
+                  type="text"
+                  value={storeName}
+                  onChange={(e) => handleSaveStoreName(e.target.value)}
+                  placeholder="예: 연세미소치과의원"
+                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">🩺 진료 과목</label>
+                <select
+                  value={clinicType}
+                  onChange={(e) => handleSaveClinicType(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {CLINIC_TYPES.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">💬 시그니처 첫인사</label>
+                <input
+                  type="text"
+                  value={customGreeting}
+                  onChange={(e) => handleSaveGreeting(e.target.value)}
+                  placeholder="예: 안녕하세요, 연세미소치과입니다."
+                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Review Input Card */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Rating Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">⭐ 환자 남김 평점</label>
+                <div className="flex gap-1">
+                  {["5", "4", "3", "2", "1"].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setRating(num)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${
+                        rating === num
+                          ? "bg-amber-400 text-slate-900 border-amber-400 shadow-sm"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {num}점
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tone Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">🎭 답글 어조 선택</label>
+                <div className="flex gap-1">
+                  {[
+                    { id: "caring", label: "🩺 공감/따뜻함" },
+                    { id: "professional", label: "🏛️ 전문적/신뢰" },
+                    { id: "friendly", label: "😊 다정/친근" }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setTone(item.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                        tone === item.id
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Review Text Area */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">📝 환자 리뷰 내용 복사/붙여넣기</label>
+              <textarea
+                rows="4"
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                placeholder="예: 통증 때문에 걱정했는데 치위생사분과 원장님이 친절하게 설명해 주셔서 안심하고 스케일링 받았어요! 다음에도 여기로 올게요."
+                className="w-full p-3 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
+              ></textarea>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              onClick={generateReplies}
+              disabled={loading}
+              className={`w-full py-4 font-bold rounded-xl shadow-lg transition-all text-lg flex items-center justify-center gap-2 ${
+                loading
+                  ? "bg-slate-700 text-white cursor-not-allowed animate-pulse"
+                  : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95 active:scale-[0.99]"
+              }`}
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>의료법 가이드라인 반영하여 답글 생성 중...</span>
+                </>
+              ) : (
+                <span>✨ 의료진 맞춤 답글 3개 생성하기</span>
+              )}
+            </button>
+          </div>
+
+          {errorMsg && (
+            <div className="p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl mb-6">
+              ⚠️ {errorMsg}
+            </div>
+          )}
+
+          {/* Results Display */}
+          {results && results.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                📋 AI 추천 답글 옵션 (원하는 문구를 복사해서 쓰세요)
+              </h2>
+
+              {results.map((item, idx) => (
+                <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
+                      {item.tag}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(item.content)}
+                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                    >
+                      📋 답글 복사
+                    </button>
+                  </div>
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100 font-medium">
+                    {item.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
