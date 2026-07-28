@@ -26,12 +26,13 @@
       const [clinicType, setClinicType] = useState(() => localStorage.getItem("clinic_type") || "치과");
       const [customGreeting, setCustomGreeting] = useState(() => localStorage.getItem("clinic_greeting") || "안녕하세요, 연세힐치과입니다 🦷");
 
-      // 입력 값
+      // 입력 및 상태 값
       const [reviewText, setReviewText] = useState("");
-      const [tone, setTone] = useState("caring"); // caring(따뜻한/배려), professional(전문적/정중), friendly(친근한)
+      const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
+      const [showInfoModal, setShowInfoModal] = useState(false); // i 아이콘 모달 상태
 
       // 로컬 스토리지 저장
       const handleSaveKey = (val) => { setApiKey(val); localStorage.setItem("gemini_key", val); };
@@ -112,7 +113,22 @@
 
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
-            throw new Error(`API Error: ${res.status} (${errData.error?.message || "요청 실패"})`);
+            const rawMsg = errData.error?.message || "";
+
+            if (res.status === 429) {
+              // 하루 한도(Day/RPD) 초과 여부 확인
+              if (rawMsg.includes("Per-Day") || rawMsg.includes("RPD") || rawMsg.includes("quota")) {
+                throw new Error("🛑 구글 무료 API 하루 이용 한도(1,500회)를 모두 소비했습니다. 내일 다시 이용하시거나 새로운 API Key를 발급해 주세요.");
+              }
+
+              // 분당 한도(RPM) 초과 파싱
+              const match = rawMsg.match(/retry in ([0-9.]+)s/i);
+              const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 60;
+              
+              throw new Error(`⏳ 요청 한도 초과! 구글 무료 API 한도(1분당 15회)에 도달했습니다. 약 ${retrySeconds}초 후에 다시 버튼을 눌러주세요.`);
+            }
+
+            throw new Error(`API 오류 (${res.status}): ${rawMsg || "요청 실패"}`);
           }
 
           const data = await res.json();
@@ -204,7 +220,15 @@
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               {/* Tone Selector */}
               <div className="w-full">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">🎭 답글 어조 선택</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">🎭 답글 어조 선택</label>
+                  <button
+                    onClick={() => setShowInfoModal(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-semibold"
+                  >
+                    <span>ℹ️ API 호출 방식/제한 설명</span>
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   {[
                     { id: "caring", label: "🩺 공감/따뜻함" },
@@ -264,8 +288,14 @@
           </div>
 
           {errorMsg && (
-            <div className="p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl mb-6">
-              ⚠️ {errorMsg}
+            <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl mb-6 shadow-sm flex items-start justify-between gap-3">
+              <div>{errorMsg}</div>
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="shrink-0 text-xs bg-amber-200 text-amber-900 px-2 py-1 rounded font-bold hover:bg-amber-300"
+              >
+                ℹ️ 왜 한도가 뜨나요?
+              </button>
             </div>
           )}
 
@@ -318,6 +348,48 @@
           <footer className="text-center text-xs text-slate-400 py-4 border-t border-slate-200/60">
             <p>Created by <span className="font-bold text-slate-600">이승훈</span> | Version v01</p>
           </footer>
+
+          {/* Modal for API Explanation (Sliding Window & Limits) */}
+          {showInfoModal && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-100 space-y-4">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
+                    💡 Gemini API 호출 및 한도 원리 안내
+                  </h3>
+                  <button
+                    onClick={() => setShowInfoModal(false)}
+                    className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs leading-relaxed text-slate-600">
+                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-900">
+                    <p className="font-bold mb-1">⏱️ 왜 1분을 안 기다리고 10~15초 뒤에 되나요?</p>
+                    <p>구글 Gemini API는 **슬라이딩 윈도우(Sliding Window)** 방식으로 제한을 계산합니다. 정각 기준 1분이 아니라 **'지급 시점 기준 과거 60초간의 호출 횟수'**를 실시간으로 측정하므로, 연속 클릭 후 10~15초 간격만 두어도 한도가 즉시 해제됩니다.</p>
+                  </div>
+
+                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900">
+                    <p className="font-bold mb-1">📊 무료 요금제(Free Tier) 제한 규정</p>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>**분당 한도(RPM):** 1분당 최대 15회 요청 가능 (연사 시 429 제한)</li>
+                      <li>**일일 한도(RPD):** 하루 최대 1,500회 요청 가능</li>
+                      <li>**답글 3개 생성:** 답글이 3개 나와도 서버 요청은 1회로 간주되어 **1회만 차감**됩니다.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowInfoModal(false)}
+                  className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-xs hover:bg-slate-900 transition-colors"
+                >
+                  확인했습니다
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
