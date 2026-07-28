@@ -30,6 +30,7 @@
       const [reviewText, setReviewText] = useState("");
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
+      const [progress, setProgress] = useState(0); // 프로그레스 바 % 상태
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
       const [showInfoModal, setShowInfoModal] = useState(false);
@@ -40,6 +41,23 @@
       const handleSaveStoreName = (val) => { setStoreName(val); localStorage.setItem("clinic_name", val); };
       const handleSaveClinicType = (val) => { setClinicType(val); localStorage.setItem("clinic_type", val); };
       const handleSaveGreeting = (val) => { setCustomGreeting(val); localStorage.setItem("clinic_greeting", val); };
+
+      // 로딩 진행률(Progress Bar) 가상 타이머 로직
+      useEffect(() => {
+        let interval;
+        if (loading) {
+          setProgress(0);
+          interval = setInterval(() => {
+            setProgress((prev) => {
+              if (prev >= 92) return prev; // 응답 직전까지 부드럽게 92%까지 차오름
+              return prev + Math.floor(Math.random() * 8) + 4;
+            });
+          }, 150);
+        } else {
+          setProgress(100);
+        }
+        return () => clearInterval(interval);
+      }, [loading]);
 
       const generateReplies = async () => {
         const cleanKey = apiKey.trim();
@@ -135,6 +153,7 @@
           const cleanedJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
           const parsed = JSON.parse(cleanedJson);
 
+          setProgress(100);
           setResults(parsed.replies || []);
         } catch (err) {
           console.error(err);
@@ -142,6 +161,12 @@
         } finally {
           setLoading(false);
         }
+      };
+
+      const handleResultChange = (idx, newText) => {
+        const updated = [...results];
+        updated[idx].content = newText;
+        setResults(updated);
       };
 
       const copyToClipboard = (text) => {
@@ -295,24 +320,40 @@
               </a>
             </div>
 
+            {/* Progress Bar Display Section */}
+            {loading && (
+              <div className="space-y-1.5 pt-2">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-600">
+                  <span>🤖 의료법 가이드라인을 반영하여 AI 답글을 분석 및 작성 중입니다...</span>
+                  <span className="text-blue-600 font-mono text-sm">{progress}%</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-300 ease-out shadow-md"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+
             {/* Submit Button */}
             <button
               onClick={generateReplies}
               disabled={loading}
               className={`w-full py-4 font-bold rounded-xl shadow-lg transition-all text-lg flex items-center justify-center gap-2 ${
                 loading
-                  ? "bg-slate-700 text-white cursor-not-allowed animate-pulse"
+                  ? "bg-slate-700 text-white cursor-not-allowed opacity-90"
                   : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95 active:scale-[0.99]"
               }`}
             >
               {loading ? (
-                <>
+                <div className="flex items-center gap-2">
                   <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  <span>의료법 가이드라인 반영하여 답글 생성 중...</span>
-                </>
+                  <span>생성 진행 중 ({progress}%)</span>
+                </div>
               ) : (
                 <span>✨ 의료진 맞춤 답글 3개 생성하기</span>
               )}
@@ -335,7 +376,7 @@
           {results && results.length > 0 && (
             <div className="space-y-4 mb-8">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                📋 AI 추천 답글 옵션 (원하는 문구를 복사해서 쓰세요)
+                📋 AI 추천 답글 옵션 (필요시 직접 수정한 후 복사하세요)
               </h2>
 
               {results.map((item, idx) => (
@@ -351,9 +392,12 @@
                       📋 답글 복사
                     </button>
                   </div>
-                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-100 font-medium">
-                    {item.content}
-                  </p>
+                  <textarea
+                    rows="4"
+                    value={item.content}
+                    onChange={(e) => handleResultChange(idx, e.target.value)}
+                    className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all resize-y"
+                  ></textarea>
                 </div>
               ))}
             </div>
