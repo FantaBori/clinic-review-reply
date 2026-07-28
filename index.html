@@ -35,7 +35,7 @@
       const [reviewText, setReviewText] = useState("");
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
-      const [loadingStep, setLoadingStep] = useState(0); // 생성 진행 단계 메시지
+      const [loadingStep, setLoadingStep] = useState(0);
       const [coolDown, setCoolDown] = useState(0);
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
@@ -47,7 +47,6 @@
       const handleSaveClinicType = (val) => { setClinicType(val); setStorage("clinic_type", val); };
       const handleSaveGreeting = (val) => { setCustomGreeting(val); setStorage("clinic_greeting", val); };
 
-      // 대기 타이머
       useEffect(() => {
         let timer;
         if (coolDown > 0) {
@@ -56,14 +55,13 @@
         return () => clearInterval(timer);
       }, [coolDown]);
 
-      // 단계별 로딩 메시지 자동 전환 애니메이션
       useEffect(() => {
         let interval;
         if (loading) {
           setLoadingStep(1);
           interval = setInterval(() => {
             setLoadingStep((prev) => (prev >= 3 ? 3 : prev + 1));
-          }, 1200);
+          }, 1000);
         } else {
           setLoadingStep(0);
         }
@@ -109,7 +107,8 @@
         `;
 
         try {
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`, {
+          // gemini-2.5-flash 표준 호환 모델 적용
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanKey}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -164,7 +163,7 @@
 
         } catch (err) {
           console.error(err);
-          setErrorMsg(err.message || "답글 생성에 실패했습니다. Key 및 입력 상태를 확인하고 다시 시도해 주세요.");
+          setErrorMsg(err.message || "답글 생성에 실패했습니다. 키 입력 상태를 확인하고 다시 시도해 주세요.");
         } finally {
           setLoading(false);
         }
