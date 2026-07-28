@@ -30,7 +30,7 @@
       const [reviewText, setReviewText] = useState("");
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
-      const [progress, setProgress] = useState(0); // 실시간 프로그레스 %
+      const [progress, setProgress] = useState(0);
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
       const [showInfoModal, setShowInfoModal] = useState(false);
@@ -54,7 +54,7 @@
         }
 
         setLoading(true);
-        setProgress(5); // 시작 시 5%
+        setProgress(5);
         setErrorMsg("");
         setResults(null);
 
@@ -106,7 +106,6 @@
         `;
 
         try {
-          // 실시간 스트리밍 API 호출 (streamGenerateContent)
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${cleanKey}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -122,23 +121,21 @@
 
             if (res.status === 429) {
               if (rawMsg.includes("Per-Day") || rawMsg.includes("RPD") || rawMsg.includes("quota")) {
-                throw new Error("🛑 구글 무료 API 하루 이용 한도(1,500회)를 모두 소비했습니다. 내일 다시 이용하시거나 새로운 API Key를 발급해 주세요.");
+                throw new Error("🛑 오늘 사용할 수 있는 구글 무료 API 한도(1,500회)를 다 썼습니다. 내일 다시 이용하시거나 새 키를 발급받아 주세요.");
               }
 
               const match = rawMsg.match(/retry in ([0-9.]+)s/i);
               const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 60;
               
-              throw new Error(`⏳ 요청 한도 초과! 구글 무료 API 한도(1분당 15회)에 도달했습니다. 약 ${retrySeconds}초 후에 다시 버튼을 눌러주세요.`);
+              throw new Error(`⏳ 요청이 너무 빠릅니다! 구글 무료 API 한도(1분당 15회)에 걸렸으니 약 ${retrySeconds}초 뒤에 다시 눌러주세요.`);
             }
 
             throw new Error(`API 오류 (${res.status}): ${rawMsg || "요청 실패"}`);
           }
 
-          // 스트림 데이터 읽기
           const reader = res.body.getReader();
           const decoder = new TextDecoder("utf-8");
           let accumulatedText = "";
-          // 예상 전체 JSON 바이트 크기 (약 800바이트 기준 실시간 계산)
           const ESTIMATED_TOTAL_SIZE = 850; 
 
           setProgress(15);
@@ -150,16 +147,11 @@
             const chunk = decoder.decode(value, { stream: true });
             accumulatedText += chunk;
 
-            // 실제 넘어오는 데이터 길이에 맞춰 % 실시간 상승
             const currentSize = accumulatedText.length;
             const calculatedPct = Math.min(98, Math.floor((currentSize / ESTIMATED_TOTAL_SIZE) * 100));
-            
-            // 연결 신호 후 최소 20%부터 수신량에 따라 실시간 반영
             setProgress(Math.max(20, calculatedPct));
           }
 
-          // 전체 수신 완료 후 JSON 파싱
-          // streamResponse 구조상 각 chunk JSON 분라 처리
           const jsonMatches = accumulatedText.match(/"text":\s*"([\s\S]*?)"/g) || [];
           let fullPromptOutput = "";
           
@@ -170,388 +162,8 @@
             } catch(e) {}
           });
 
-          // 만약 스트림 정규식 파싱 실패 시 백업 추출
           if (!fullPromptOutput) {
             fullPromptOutput = accumulatedText;
           }
 
-          const cleanedJson = fullPromptOutput.replace(/```json/g, "").replace(/```/g, "").trim();
-          const jsonStart = cleanedJson.indexOf('{');
-          const jsonEnd = cleanedJson.lastIndexOf('}');
-          
-          if (jsonStart !== -1 && jsonEnd !== -1) {
-            const parsed = JSON.parse(cleanedJson.substring(jsonStart, jsonEnd + 1));
-            setResults(parsed.replies || []);
-            setProgress(100); // 완전 성공 시 100%
-          } else {
-            throw new Error("답변 형식을 처리하지 못했습니다. 다시 시도해 주세요.");
-          }
-
-        } catch (err) {
-          console.error(err);
-          setErrorMsg(err.message || "답글 생성에 실패했습니다. Key 및 설정을 확인해주세요.");
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      const handleResultChange = (idx, newText) => {
-        const updated = [...results];
-        updated[idx].content = newText;
-        setResults(updated);
-      };
-
-      const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        alert("답글이 복사되었습니다! 네이버 플레이스 리뷰 답글창에 붙여넣으세요.");
-      };
-
-      return (
-        <div className="max-w-4xl mx-auto p-4 md:p-8 pb-16 relative">
-          {/* Header */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold text-slate-800">
-                    🏥 병의원 전용 네이버 리뷰 답글 빌더
-                  </h1>
-                  <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-semibold border border-slate-200">
-                    v01
-                  </span>
-                </div>
-                <p className="text-slate-500 text-sm">의료법을 준수하며 환자에게 신뢰감을 주는 맞춤 답글 3종을 AI가 자동 생성합니다.</p>
-              </div>
-              
-              {/* API Key Box */}
-              <div className="w-full md:w-96 shrink-0">
-                <div className="flex items-center justify-between mb-1.5 whitespace-nowrap">
-                  <label className="text-xs font-semibold text-slate-600 flex items-center gap-1">
-                    🔑 Gemini API Key
-                  </label>
-                  <button
-                    onClick={() => setShowKeyGuideModal(true)}
-                    className="text-xs text-blue-600 hover:underline font-bold flex items-center gap-1"
-                  >
-                    <span>💡 10초 만에 무료 키 발급받기 ↗</span>
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  placeholder="Gemini API Key를 입력하세요"
-                  value={apiKey}
-                  onChange={(e) => handleSaveKey(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Clinic Configuration Section */}
-            <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">🏥 병원/의원명</label>
-                <input
-                  type="text"
-                  value={storeName}
-                  onChange={(e) => handleSaveStoreName(e.target.value)}
-                  placeholder="예: 연세힐치과의원"
-                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">🩺 진료 과목</label>
-                <select
-                  value={clinicType}
-                  onChange={(e) => handleSaveClinicType(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  {CLINIC_TYPES.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">💬 시그니처 첫인사</label>
-                <input
-                  type="text"
-                  value={customGreeting}
-                  onChange={(e) => handleSaveGreeting(e.target.value)}
-                  placeholder="예: 안녕하세요, 연세힐치과입니다."
-                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Review Input Card */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              {/* Tone Selector */}
-              <div className="w-full">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700">🎭 답글 어조 선택</label>
-                  <button
-                    onClick={() => setShowInfoModal(true)}
-                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-semibold"
-                  >
-                    <span>ℹ️ API 호출 방식/제한 설명</span>
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  {[
-                    { id: "caring", label: "🩺 공감/따뜻함" },
-                    { id: "professional", label: "🏛️ 전문적/신뢰" },
-                    { id: "friendly", label: "😊 다정/친근" }
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => setTone(item.id)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                        tone === item.id
-                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Review Text Area */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">📝 환자 리뷰 내용 복사/붙여넣기</label>
-              <textarea
-                rows="4"
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-                placeholder="네이버 플레이스의 키워드/텍스트 리뷰를 복사해서 붙여넣으세요..."
-                className="w-full p-3 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
-              ></textarea>
-            </div>
-
-            {/* Helper Card for Drag Unblocking */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="text-slate-600">
-                <p className="font-bold text-slate-800 flex items-center gap-1">
-                  💡 네이버 플레이스 리뷰 드래그(복사)가 안 되시나요?
-                </p>
-                <p className="mt-0.5 text-slate-500">
-                  네이버 자체 드래그 방지 때문에 글 선택이 안 될 땐 **DragFree(우클릭 해제)** 프로그램으로 1초 만에 뚫을 수 있습니다!
-                </p>
-              </div>
-              <a
-                href="https://chromewebstore.google.com/detail/dragfree-mouse-unblock+ch/cnfngpgfjllafbghaimjcmailafcdhod?hl=ko"
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-slate-400 font-bold px-3 py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm"
-              >
-                <span>🖱️ DragFree 크롬 확장 설치</span>
-                <span className="text-blue-600 font-bold">↗</span>
-              </a>
-            </div>
-
-            {/* Realtime Streaming Progress Bar */}
-            {loading && (
-              <div className="space-y-1.5 pt-2">
-                <div className="flex justify-between items-center text-xs font-bold text-slate-600">
-                  <span>📡 실시간 스트리밍으로 답글 생성 수신 중...</span>
-                  <span className="text-blue-600 font-mono text-sm">{progress}%</span>
-                </div>
-                <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner">
-                  <div
-                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-150 ease-out shadow-md"
-                    style={{ width: `${progress}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <button
-              onClick={generateReplies}
-              disabled={loading}
-              className={`w-full py-4 font-bold rounded-xl shadow-lg transition-all text-lg flex items-center justify-center gap-2 ${
-                loading
-                  ? "bg-slate-700 text-white cursor-not-allowed opacity-90"
-                  : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95 active:scale-[0.99]"
-              }`}
-            >
-              {loading ? (
-                <div className="flex items-center gap-2">
-                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>실시간 데이터 수신 중 ({progress}%)</span>
-                </div>
-              ) : (
-                <span>✨ 의료진 맞춤 답글 3개 생성하기</span>
-              )}
-            </button>
-          </div>
-
-          {errorMsg && (
-            <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl mb-6 shadow-sm flex items-start justify-between gap-3">
-              <div>{errorMsg}</div>
-              <button
-                onClick={() => setShowInfoModal(true)}
-                className="shrink-0 text-xs bg-amber-200 text-amber-900 px-2 py-1 rounded font-bold hover:bg-amber-300"
-              >
-                ℹ️ 왜 한도가 뜨나요?
-              </button>
-            </div>
-          )}
-
-          {/* Results Display */}
-          {results && results.length > 0 && (
-            <div className="space-y-4 mb-8">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                📋 AI 추천 답글 옵션 (필요시 직접 수정한 후 복사하세요)
-              </h2>
-
-              {results.map((item, idx) => (
-                <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
-                      {item.tag}
-                    </span>
-                    <button
-                      onClick={() => copyToClipboard(item.content)}
-                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors flex items-center gap-1 shadow-sm"
-                    >
-                      📋 답글 복사
-                    </button>
-                  </div>
-                  <textarea
-                    rows="4"
-                    value={item.content}
-                    onChange={(e) => handleResultChange(idx, e.target.value)}
-                    className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all resize-y"
-                  ></textarea>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Roadmap & Feature Update Card */}
-          <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-6 rounded-2xl shadow-md mb-8">
-            <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-wider mb-2 flex items-center gap-2">
-              🚀 업데이트 예정 로드맵 (Roadmap)
-            </h3>
-            <ul className="space-y-2 text-xs text-slate-300">
-              <li className="flex items-center gap-2">
-                <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-mono">v0.2</span>
-                <span>🧩 **크롬 확장프로그램(Chrome Extension) 연동:** 네이버 플레이스 페이지에서 팝업으로 즉시 실행 지원</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-mono">v0.3</span>
-                <span>🤖 **리뷰 자동 크롤링 & 모음 기능:** 플레이스에 새로 등록된 미답글 리뷰 자동 추출 및 일괄 답변 생성</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Footer (Credit) */}
-          <footer className="text-center text-xs text-slate-400 py-4 border-t border-slate-200/60">
-            <p>Created by <span className="font-bold text-slate-600">이승훈</span> | Version v01</p>
-          </footer>
-
-          {/* Modal for API Explanation */}
-          {showInfoModal && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-                    💡 Gemini API 호출 및 한도 원리 안내
-                  </h3>
-                  <button
-                    onClick={() => setShowInfoModal(false)}
-                    className="text-slate-400 hover:text-slate-600 font-bold text-lg"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="space-y-3 text-xs leading-relaxed text-slate-600">
-                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-900">
-                    <p className="font-bold mb-1">⏱️ 왜 1분을 안 기다리고 10~15초 뒤에 되나요?</p>
-                    <p>구글 Gemini API는 **슬라이딩 윈도우(Sliding Window)** 방식으로 제한을 계산합니다. 정각 기준 1분이 아니라 **'지급 시점 기준 과거 60초간의 호출 횟수'**를 실시간으로 측정하므로, 연속 클릭 후 10~15초 간격만 두어도 한도가 즉시 해제됩니다.</p>
-                  </div>
-
-                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900">
-                    <p className="font-bold mb-1">📊 무료 요금제(Free Tier) 제한 규정</p>
-                    <ul className="list-disc pl-4 space-y-1">
-                      <li>**분당 한도(RPM):** 1분당 최대 15회 요청 가능 (연사 시 429 제한)</li>
-                      <li>**일일 한도(RPD):** 하루 최대 1,500회 요청 가능</li>
-                      <li>**답글 3개 생성:** 답글이 3개 나와도 서버 요청은 1회로 간주되어 **1회만 차감**됩니다.</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowInfoModal(false)}
-                  className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-xs hover:bg-slate-900 transition-colors"
-                >
-                  확인했습니다
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Modal for Free Key Generation Guide */}
-          {showKeyGuideModal && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <h3 className="font-bold text-slate-800 text-base flex items-center gap-1.5">
-                    🔑 10초 만에 무료 Gemini API Key 발급받기
-                  </h3>
-                  <button
-                    onClick={() => setShowKeyGuideModal(false)}
-                    className="text-slate-400 hover:text-slate-600 font-bold text-lg"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="space-y-3 text-xs leading-relaxed text-slate-600">
-                  <p className="text-slate-700 font-medium">구글 계정만 있다면 결제 수단 등록 없이 10초 만에 무료 키를 만드실 수 있습니다.</p>
-                  
-                  <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                    <p className="font-bold text-blue-600">발급 3단계 순서:</p>
-                    <ol className="list-decimal pl-4 space-y-1.5 text-slate-700">
-                      <li>우측 상단 **[API키 만들기]** 버튼 클릭 (Google AI Studio 이동)</li>
-                      <li>구글 로그인 후 **프로젝트 생성** (또는 기존 프로젝트 선택)</li>
-                      <li>**[키 만들기]** 버튼을 눌러 발급받은 키를 복사해서 우측 상단 입력창에 붙여넣기!</li>
-                    </ol>
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors text-center block"
-                  >
-                    🚀 Google AI Studio로 이동하기 ↗
-                  </a>
-                  <button
-                    onClick={() => setShowKeyGuideModal(false)}
-                    className="px-4 py-2.5 bg-slate-200 text-slate-700 rounded-xl font-bold text-xs hover:bg-slate-300 transition-colors"
-                  >
-                    닫기
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-  </script>
-</body>
-</html>
+          const cleanedJson = fullPromptOutput.replace(/```json/g, "").replace(/
