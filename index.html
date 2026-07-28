@@ -32,7 +32,7 @@
       const [loading, setLoading] = useState(false);
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
-      const [showInfoModal, setShowInfoModal] = useState(false); // i 아이콘 모달 상태
+      const [showInfoModal, setShowInfoModal] = useState(false);
 
       // 로컬 스토리지 저장
       const handleSaveKey = (val) => { setApiKey(val); localStorage.setItem("gemini_key", val); };
@@ -116,12 +116,10 @@
             const rawMsg = errData.error?.message || "";
 
             if (res.status === 429) {
-              // 하루 한도(Day/RPD) 초과 여부 확인
               if (rawMsg.includes("Per-Day") || rawMsg.includes("RPD") || rawMsg.includes("quota")) {
                 throw new Error("🛑 구글 무료 API 하루 이용 한도(1,500회)를 모두 소비했습니다. 내일 다시 이용하시거나 새로운 API Key를 발급해 주세요.");
               }
 
-              // 분당 한도(RPM) 초과 파싱
               const match = rawMsg.match(/retry in ([0-9.]+)s/i);
               const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 60;
               
@@ -261,6 +259,27 @@
                 placeholder="네이버 플레이스의 키워드/텍스트 리뷰를 복사해서 붙여넣으세요..."
                 className="w-full p-3 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
               ></textarea>
+            </div>
+
+            {/* Helper Card for Drag Unblocking */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="text-slate-600">
+                <p className="font-bold text-slate-800 flex items-center gap-1">
+                  💡 네이버 플레이스 리뷰 드래그(복사)가 안 되시나요?
+                </p>
+                <p className="mt-0.5 text-slate-500">
+                  네이버 자체 드래그 방지 때문에 글 선택이 안 될 땐 **DragFree(우클릭 해제)** 프로그램으로 1초 만에 뚫을 수 있습니다!
+                </p>
+              </div>
+              <a
+                href="https://chromewebstore.google.com/detail/dragfree-mouse-unblock+ch/cnfngpgfjllafbghaimjcmailafcdhod?hl=ko"
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-slate-400 font-bold px-3 py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm"
+              >
+                <span>🖱️ DragFree 크롬 확장 설치</span>
+                <span className="text-blue-600 font-bold">↗</span>
+              </a>
             </div>
 
             {/* Submit Button */}
