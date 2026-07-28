@@ -31,6 +31,7 @@
       const [tone, setTone] = useState("caring");
       const [loading, setLoading] = useState(false);
       const [progress, setProgress] = useState(0);
+      const [coolDown, setCoolDown] = useState(0); // 15초 대기 타이머
       const [results, setResults] = useState(null);
       const [errorMsg, setErrorMsg] = useState("");
       const [showInfoModal, setShowInfoModal] = useState(false);
@@ -41,6 +42,17 @@
       const handleSaveStoreName = (val) => { setStoreName(val); localStorage.setItem("clinic_name", val); };
       const handleSaveClinicType = (val) => { setClinicType(val); localStorage.setItem("clinic_type", val); };
       const handleSaveGreeting = (val) => { setCustomGreeting(val); localStorage.setItem("clinic_greeting", val); };
+
+      // 15초 카운트다운 타이머 로직
+      useEffect(() => {
+        let timer;
+        if (coolDown > 0) {
+          timer = setInterval(() => {
+            setCoolDown((prev) => prev - 1);
+          }, 1000);
+        }
+        return () => clearInterval(timer);
+      }, [coolDown]);
 
       const generateReplies = async () => {
         const cleanKey = apiKey.trim();
@@ -120,17 +132,17 @@
             const rawMsg = errData.error?.message || "";
 
             if (res.status === 429) {
+              setCoolDown(15); // 15초 카운트다운 시작
+
               if (rawMsg.includes("Per-Day") || rawMsg.includes("RPD") || rawMsg.includes("quota")) {
                 throw new Error("🛑 오늘 사용할 수 있는 구글 무료 API 한도(1,500회)를 다 썼습니다. 내일 다시 이용하시거나 새 키를 발급받아 주세요.");
               }
 
-              const match = rawMsg.match(/retry in ([0-9.]+)s/i);
-              const retrySeconds = match ? Math.ceil(parseFloat(match[1])) : 60;
-              
-              throw new Error(`⏳ 요청이 너무 빠릅니다! 구글 무료 API 한도(1분당 15회)에 걸렸으니 약 ${retrySeconds}초 뒤에 다시 눌러주세요.`);
+              throw new Error("⏳ 요청이 너무 빠릅니다! 구글 무료 API 한도 초과 방지를 위해 약 10~15초만 기다렸다가 다시 시도해 주세요.");
             }
 
-            throw new Error(`API 오류 (${res.status}): ${rawMsg || "요청 실패"}`);
+            setCoolDown(15); // 기타 에러 시에도 15초 대기 세팅
+            throw new Error(`API 오류 (${res.status}): ${rawMsg || "답변 형식을 처리하지 못했습니다. 약 10~15초 후 다시 시도해 주세요."}`);
           }
 
           const reader = res.body.getReader();
@@ -175,12 +187,13 @@
             setResults(parsed.replies || []);
             setProgress(100);
           } else {
-            throw new Error("답변 형식을 처리하지 못했습니다. 다시 시도해 주세요.");
+            setCoolDown(15);
+            throw new Error("답변 형식을 처리하지 못했습니다. 약 10~15초만 기다려주신 후 다시 시도해 주세요.");
           }
 
         } catch (err) {
           console.error(err);
-          setErrorMsg(err.message || "답글 생성에 실패했습니다. Key 및 설정을 확인해주세요.");
+          setErrorMsg(err.message || "답글 생성에 실패했습니다. 약 10~15초 후 다시 시도해 주세요.");
         } finally {
           setLoading(false);
         }
@@ -362,10 +375,12 @@
             {/* Submit Button */}
             <button
               onClick={generateReplies}
-              disabled={loading}
+              disabled={loading || coolDown > 0}
               className={`w-full py-4 font-bold rounded-xl shadow-lg transition-all text-lg flex items-center justify-center gap-2 ${
                 loading
                   ? "bg-slate-700 text-white cursor-not-allowed opacity-90"
+                  : coolDown > 0
+                  ? "bg-slate-400 text-white cursor-not-allowed"
                   : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95 active:scale-[0.99]"
               }`}
             >
@@ -377,18 +392,28 @@
                   </svg>
                   <span>실시간 데이터 수신 중 ({progress}%)</span>
                 </div>
+              ) : coolDown > 0 ? (
+                <span>⏳ 잠시 대기 중 ({coolDown}초 후 다시 가능)</span>
               ) : (
                 <span>✨ 의료진 맞춤 답글 3개 생성하기</span>
               )}
             </button>
           </div>
 
+          {/* Error Message Display with 15s Timer */}
           {errorMsg && (
-            <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl mb-6 shadow-sm flex items-start justify-between gap-3">
-              <div>{errorMsg}</div>
+            <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl mb-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <p className="font-semibold">{errorMsg}</p>
+                {coolDown > 0 && (
+                  <p className="text-xs text-amber-700 font-bold flex items-center gap-1">
+                    ⏱️ 남은 권장 대기 시간: <span className="font-mono text-sm text-blue-600">{coolDown}초</span>
+                  </p>
+                )}
+              </div>
               <button
                 onClick={() => setShowInfoModal(true)}
-                className="shrink-0 text-xs bg-amber-200 text-amber-900 px-2 py-1 rounded font-bold hover:bg-amber-300"
+                className="shrink-0 text-xs bg-amber-200 text-amber-900 px-3 py-1.5 rounded-lg font-bold hover:bg-amber-300 transition-colors"
               >
                 ℹ️ 왜 한도가 뜨나요?
               </button>
@@ -448,7 +473,7 @@
             <p>Created by <span className="font-bold text-slate-600">이승훈</span> | Version v01</p>
           </footer>
 
-          {/* Modal for API Explanation */}
+          {/* Modal for API Explanation (순서 변경 적용 완료) */}
           {showInfoModal && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-100 space-y-4">
@@ -465,18 +490,24 @@
                 </div>
 
                 <div className="space-y-3 text-xs leading-relaxed text-slate-600">
-                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-900">
-                    <p className="font-bold mb-1">⏱️ 왜 1분을 안 기다리고 10~15초 뒤에 되나요?</p>
-                    <p>구글 Gemini API는 <strong>슬라이딩 윈도우(Sliding Window)</strong> 방식으로 제한을 계산합니다. 정각 기준 1분이 아니라 <strong>현재 요청하는 순간 기준 과거 60초간의 사용 횟수</strong>를 실시간으로 측정하므로, 연속 클릭 후 10~15초 간격만 두어도 한도가 해제됩니다.</p>
-                  </div>
-
-                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900">
-                    <p className="font-bold mb-1">📊 무료 요금제(Free Tier) 제한 규정</p>
+                  {/* 1. 무료 요금제 제한 규정 (첫 번째 위치로 이동) */}
+                  <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 text-amber-900">
+                    <p className="font-bold mb-1.5 flex items-center gap-1 text-sm">
+                      📊 무료 요금제(Free Tier) 제한 규정
+                    </p>
                     <ul className="list-disc pl-4 space-y-1">
                       <li><strong>분당 한도(RPM):</strong> 1분당 최대 15회 요청 가능 (연사 시 429 제한)</li>
                       <li><strong>일일 한도(RPD):</strong> 하루 최대 1,500회 요청 가능</li>
                       <li><strong>답글 3개 생성:</strong> 답글이 3개 나와도 서버 요청은 1회로 간주되어 <strong>1회만 차감</strong>됩니다.</li>
                     </ul>
+                  </div>
+
+                  {/* 2. 슬라이딩 윈도우 원리 안내 (두 번째 위치로 이동) */}
+                  <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-blue-900">
+                    <p className="font-bold mb-1.5 flex items-center gap-1 text-sm">
+                      ⏱️ 왜 1분을 안 기다리고 10~15초 뒤에 되나요?
+                    </p>
+                    <p>구글 Gemini API는 <strong>슬라이딩 윈도우(Sliding Window)</strong> 방식으로 제한을 계산합니다. 정각 기준 1분이 아니라 <strong>현재 요청하는 순간 기준 과거 60초간의 사용 횟수</strong>를 실시간으로 측정하므로, 연속 클릭 후 10~15초 간격만 두어도 한도가 해제됩니다.</p>
                   </div>
                 </div>
 
